@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+functions/node_modules/
+
+# Build outputs
+frontend/dist/
+public/dist/
+
+# Environment & secrets
+.env
+.env.*
+functions/.env.local
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Firebase local
+.firebase/
+firebase-debug.log
+firebase-debug.*.log

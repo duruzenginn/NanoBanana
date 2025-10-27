@@ -1,0 +1,22 @@
+{
+	"functions": {
+		"source": "functions"
+	},
+		"hosting": {
+			"public": "frontend/dist",
+		"ignore": [
+			"firebase.json",
+			"**/.*",
+			"**/node_modules/**"
+		],
+		"rewrites": [
+					{
+						"source": "/api/generateImage",
+						"function": {
+						"functionId": "generateImageV2",
+							"region": "europe-west1"
+						}
+					}
+		]
+	}
+}

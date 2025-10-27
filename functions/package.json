@@ -1,0 +1,19 @@
+{
+	"name": "functions",
+	"private": true,
+	"description": "Firebase Cloud Functions (Gen 2) for NanoBanana image generation",
+	"main": "index.js",
+	"engines": {
+		"node": "20"
+	},
+	"scripts": {
+		"serve": "firebase emulators:start --only functions,hosting",
+		"deploy": "firebase deploy --only functions,hosting",
+		"start": "npm run serve"
+	},
+	"dependencies": {
+		"cors": "^2.8.5",
+		"firebase-admin": "^12.6.0",
+		"firebase-functions": "^5.1.1"
+	}
+}
