@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 5173"
+    "preview": "vite preview --port 5173",
+    "icons:build": "bash ./scripts/build-icons.sh"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.5",
