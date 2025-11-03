@@ -18,6 +18,13 @@
 						}
 					},
 					{
+						"source": "/api/freepik/search",
+						"function": {
+							"functionId": "freepikSearch",
+							"region": "europe-west1"
+						}
+					},
+					{
 						"source": "/api/hello",
 						"function": {
 							"functionId": "genkitHello",

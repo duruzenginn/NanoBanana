@@ -3,6 +3,7 @@ import Header from './components/Header'
 import PromptForm from './components/PromptForm'
 import ResultCard from './components/ResultCard'
 import LoadingSpinner from './components/LoadingSpinner'
+import MockupSearch from './components/MockupSearch'
 
 export default function App() {
   const [prompt, setPrompt] = useState('')
@@ -11,6 +12,7 @@ export default function App() {
   const [imageUrl, setImageUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [selectedMockup, setSelectedMockup] = useState(null)
 
   const canSubmit = useMemo(() => prompt.trim().length > 0 && !loading, [prompt, loading])
 
@@ -26,7 +28,8 @@ export default function App() {
         body: JSON.stringify({
           prompt: prompt.trim(),
           style: style || undefined,
-          aspectRatio: aspect || undefined
+          aspectRatio: aspect || undefined,
+          mockupImageUrl: selectedMockup?.imageUrl || selectedMockup?.previewUrl || selectedMockup?.thumbnailUrl || undefined,
         })
       })
       const data = await resp.json().catch(() => ({}))
@@ -43,6 +46,7 @@ export default function App() {
 
   const handleNew = () => {
     setImageUrl('')
+    setSelectedMockup(null)
   }
 
   const handleCopyPrompt = async () => {
@@ -68,6 +72,12 @@ export default function App() {
             loading={loading}
             onSubmit={handleGenerate}
           />
+          <div className="mt-6">
+            <MockupSearch selected={selectedMockup} onSelect={setSelectedMockup} />
+            {selectedMockup && (
+              <p className="mt-2 text-xs text-white/70">Selected mockup will be sent with your prompt.</p>
+            )}
+          </div>
         </section>
 
         <section className="mt-6">

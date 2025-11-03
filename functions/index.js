@@ -27,6 +27,109 @@ try {
 
 // Define secret for Google AI Studio API key (Gemini API)
 const GOOGLE_API_KEY = defineSecret('GOOGLE_API_KEY');
+const FREEPIK_API_KEY = defineSecret('FREEPIK_API_KEY');
+
+/**
+ * Proxy search to Freepik API to keep API key server-side.
+ * GET /api/freepik/search?q=<query>&page=<n>&limit=<n>
+ * Returns: JSON response from Freepik (or a normalized subset if desired).
+ *
+ * According to Freepik API docs, stock content search uses:
+ *   GET https://api.freepik.com/v1/resources?term=...&page=...&limit=...
+ * with header: x-freepik-api-key: <API_KEY>
+ */
+exports.freepikSearch = onRequest(
+	{
+		region: 'europe-west1',
+		timeoutSeconds: 30,
+		memory: '256MiB',
+		cors: true,
+		secrets: [FREEPIK_API_KEY],
+	},
+	async (req, res) => {
+		// Handle CORS preflight
+		if (req.method === 'OPTIONS') {
+			res.set('Access-Control-Allow-Origin', '*');
+			res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+			res.set('Access-Control-Allow-Headers', 'Content-Type');
+			return res.status(204).send('');
+		}
+
+		return cors(req, res, async () => {
+			if (req.method !== 'GET') {
+				return res.status(405).json({ error: 'Method not allowed. Use GET.' });
+			}
+
+					const q = (req.query.q || '').toString().trim();
+					let page = parseInt((req.query.page || '1').toString(), 10) || 1;
+					let limit = parseInt((req.query.limit || '24').toString(), 10) || 24;
+			if (!q) return res.status(400).json({ error: 'Missing required query parameter: q' });
+
+			if (!process.env.FREEPIK_API_KEY) {
+				return res.status(500).json({ error: 'FREEPIK_API_KEY not configured on server' });
+			}
+
+			try {
+						// Normalize page/limit bounds
+						if (page < 1) page = 1;
+						if (limit < 1) limit = 1;
+						if (limit > 100) limit = 100;
+
+						// Freepik stock content search endpoint
+						const apiUrl = new URL('https://api.freepik.com/v1/resources');
+						apiUrl.searchParams.set('term', q);
+						apiUrl.searchParams.set('page', String(page));
+						apiUrl.searchParams.set('limit', String(limit));
+						// Optional params you can experiment with:
+						// apiUrl.searchParams.set('sort', 'relevance');
+						// apiUrl.searchParams.set('order', 'desc');
+						// apiUrl.searchParams.set('filters', 'resource_type:psd'); // check docs for valid filters
+
+						// Provide Accept-Language if available
+						const acceptLang = req.headers['accept-language'] || 'en-US';
+
+						// Add timeout to avoid hanging
+						const controller = new AbortController();
+						const timeout = setTimeout(() => controller.abort(), 15000);
+
+						const fpResp = await fetch(apiUrl.toString(), {
+							method: 'GET',
+							headers: {
+								'x-freepik-api-key': process.env.FREEPIK_API_KEY,
+								'Accept': 'application/json',
+								'Accept-Language': Array.isArray(acceptLang) ? acceptLang[0] : acceptLang,
+							},
+							signal: controller.signal,
+						}).catch((e) => {
+							if (e && e.name === 'AbortError') {
+								return { ok: false, status: 504, text: async () => JSON.stringify({ message: 'Upstream timeout' }) };
+							}
+							throw e;
+						});
+
+						clearTimeout(timeout);
+
+						const text = await fpResp.text();
+				let json;
+				try { json = text ? JSON.parse(text) : {}; } catch {
+					json = { raw: text };
+				}
+
+				if (!fpResp.ok) {
+							const msg = json?.message || json?.error || `Freepik API error (${fpResp.status})`;
+							return res.status(fpResp.status || 502).json({ error: msg, details: json });
+				}
+
+				// Optionally normalize the response to only what's needed by the UI
+				// Here we pass through the original payload so you can map on the client.
+				return res.status(200).json(json);
+			} catch (err) {
+				console.error('freepikSearch error:', err);
+				return res.status(500).json({ error: 'Failed to fetch from Freepik', details: String(err?.message || err) });
+			}
+		});
+	}
+);
 
 /**
  * Gen 2 HTTPS function: POST /api/generateImage
@@ -125,13 +228,15 @@ const getFlows = (() => {
 
 			const allowedRatios = ['1:1','16:9','9:16','3:2','2:3','4:3','3:4','5:4','4:5','21:9'];
 
-				const generateImageFlow = flow(
+								const generateImageFlow = flow(
 				{
 					name: 'generateImage',
 					inputSchema: z.object({
 						prompt: z.string().min(1),
 						style: z.string().optional(),
 						aspectRatio: z.enum(allowedRatios).optional(),
+										// Optional: selected mockup image URL to condition the generation (handled server-side)
+										mockupImageUrl: z.string().url().optional(),
 					}),
 					outputSchema: z.object({
 						imageBase64: z.string(),
@@ -142,21 +247,57 @@ const getFlows = (() => {
 						downloadUrl: z.string().nullable().optional(),
 					}),
 				},
-					async ({ prompt, style, aspectRatio }) => {
+									async ({ prompt, style, aspectRatio, mockupImageUrl }) => {
 						const stylePrefix = style ? `Style: ${style}. ` : '';
-						const fullPrompt = `${stylePrefix}${prompt}`.trim();
+										const fullPrompt = `${stylePrefix}${prompt}`.trim();
+
+										// Best-effort: If a mockup image URL is provided, try to fetch it and include as multimodal input.
+										// If anything fails, we fallback to text-only generation.
+										let imageInput = null;
+										if (mockupImageUrl) {
+											try {
+												const r = await fetch(mockupImageUrl);
+												const mimeType = r.headers.get('content-type') || 'image/jpeg';
+												const buffer = Buffer.from(await r.arrayBuffer());
+												const base64 = buffer.toString('base64');
+												imageInput = { mimeType, base64 };
+											} catch (e) {
+												console.warn('Failed to fetch mockup image, proceeding without it:', e?.message || e);
+											}
+										}
 
 						// Use Genkit to generate an image with Gemini 2.5 Flash Image
-						const { media, rawResponse } = await ai.generate({
-							model: googleAI.model('gemini-2.5-flash-image'),
-							prompt: fullPrompt,
-							// Ask for image output and pass image config if provided
-							config: {
-								responseModalities: ['IMAGE'],
-								...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
-							},
-							output: { format: 'media' },
-						});
+										let media, rawResponse;
+										if (imageInput) {
+											// Attempt multimodal input: text + image. If the API shape changes, this may need adjustment per Genkit docs.
+											({ media, rawResponse } = await ai.generate({
+												model: googleAI.model('gemini-2.5-flash-image'),
+												input: [
+													{
+														role: 'user',
+														content: [
+															{ text: fullPrompt },
+															{ media: { inlineData: { data: imageInput.base64, mimeType: imageInput.mimeType } } },
+														],
+													},
+												],
+												config: {
+													responseModalities: ['IMAGE'],
+													...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+												},
+												output: { format: 'media' },
+											}));
+										} else {
+											({ media, rawResponse } = await ai.generate({
+												model: googleAI.model('gemini-2.5-flash-image'),
+												prompt: fullPrompt,
+												config: {
+													responseModalities: ['IMAGE'],
+													...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+												},
+												output: { format: 'media' },
+											}));
+										}
 
 						// Genkit may return media as an array or a single object. Normalize it.
 						const m = Array.isArray(media) ? media[0] : media;
@@ -227,12 +368,13 @@ const getFlows = (() => {
 										}
 
 													// Attempt to write Firestore metadata, but don't fail the whole request if Firestore isn't set up
-													try {
+																										try {
 															const db = admin.firestore();
 														await db.collection('images').doc(id).set({
 															prompt,
 															style: style || null,
 															aspectRatio: aspectRatio || null,
+																													mockupImageUrl: mockupImageUrl || null,
 															mimeType,
 															storagePath: imagePath,
 															downloadUrl,
