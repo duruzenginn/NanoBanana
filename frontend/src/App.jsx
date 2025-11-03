@@ -4,6 +4,7 @@ import PromptForm from './components/PromptForm'
 import ResultCard from './components/ResultCard'
 import LoadingSpinner from './components/LoadingSpinner'
 import MockupSearch from './components/MockupSearch'
+import SelectedMockupPanel from './components/SelectedMockupPanel'
 
 export default function App() {
   const [prompt, setPrompt] = useState('')
@@ -13,6 +14,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedMockup, setSelectedMockup] = useState(null)
+  const [mockupPrompt, setMockupPrompt] = useState('')
 
   const canSubmit = useMemo(() => prompt.trim().length > 0 && !loading, [prompt, loading])
 
@@ -47,6 +49,37 @@ export default function App() {
   const handleNew = () => {
     setImageUrl('')
     setSelectedMockup(null)
+    setMockupPrompt('')
+  }
+
+  const handleGenerateWithMockup = async () => {
+    if (loading) return
+    const p = mockupPrompt.trim()
+    if (!p) return
+    setLoading(true)
+    setError('')
+    setImageUrl('')
+    try {
+      const resp = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: p,
+          style: style || undefined,
+          aspectRatio: aspect || undefined,
+          mockupImageUrl: selectedMockup?.imageUrl || selectedMockup?.previewUrl || selectedMockup?.thumbnailUrl || undefined,
+        })
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status})`)
+      const { imageBase64, mimeType } = data
+      if (!imageBase64) throw new Error('No image returned from the model.')
+      setImageUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
+    } catch (e) {
+      setError(e.message || String(e))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleCopyPrompt = async () => {
@@ -74,9 +107,14 @@ export default function App() {
           />
           <div className="mt-6">
             <MockupSearch selected={selectedMockup} onSelect={setSelectedMockup} />
-            {selectedMockup && (
-              <p className="mt-2 text-xs text-white/70">Selected mockup will be sent with your prompt.</p>
-            )}
+            <SelectedMockupPanel
+              selected={selectedMockup}
+              onClear={() => setSelectedMockup(null)}
+              prompt={mockupPrompt}
+              setPrompt={setMockupPrompt}
+              onGenerate={handleGenerateWithMockup}
+              loading={loading}
+            />
           </div>
         </section>
 
