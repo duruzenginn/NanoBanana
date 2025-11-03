@@ -97,6 +97,9 @@ const getFlows = (() => {
 			const { enableFirebaseTelemetry } = firebasePkg;
 			const { z } = zodPkg;
 
+			// Sanity log to surface missing API key during cold starts/emulator runs
+			console.log('GOOGLE_API_KEY set?', !!process.env.GOOGLE_API_KEY);
+
 			if (!process.env.GOOGLE_API_KEY) {
 				// Throw early so endpoints can return a good error
 				throw new Error('Missing GOOGLE_API_KEY secret for Genkit');
@@ -155,14 +158,18 @@ const getFlows = (() => {
 							output: { format: 'media' },
 						});
 
-						if (!media?.url) {
+						// Genkit may return media as an array or a single object. Normalize it.
+						const m = Array.isArray(media) ? media[0] : media;
+						if (!m?.url) {
+							console.error('generate: missing media in response', { media, rawResponse });
 							throw new Error('Model did not return image media.');
 						}
 
-						// media.url is a data URL: data:<mime>;base64,<data>
-						const commaIdx = media.url.indexOf(',');
-						const header = media.url.substring(0, commaIdx);
-						const imageBase64 = media.url.substring(commaIdx + 1);
+						// m.url is a data URL: data:<mime>;base64,<data>
+						const dataUrl = m.url;
+						const commaIdx = dataUrl.indexOf(',');
+						const header = dataUrl.substring(0, commaIdx);
+						const imageBase64 = dataUrl.substring(commaIdx + 1);
 						const mimeTypeMatch = /data:(.*?);base64/.exec(header);
 						const mimeType = (mimeTypeMatch && mimeTypeMatch[1]) || 'image/png';
 
@@ -179,31 +186,44 @@ const getFlows = (() => {
 										const id = randomUUID();
 										const imagePath = `images/${id}.${ext}`;
 
-															// Ensure bucket exists before writing
-															// Use the configured bucket (supports *.firebasestorage.app); fallback to <projectId>.appspot.com
+															// Attempt to persist to Cloud Storage. If the bucket isn't available (e.g., emulator not initialized)
+															// do not fail the entire request — log and continue returning the imageBase64.
 															const appOptions = admin.app().options || {};
 															const configuredBucket = appOptions.storageBucket;
 															const projId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
 															const bucketName = configuredBucket || (projId ? `${projId}.appspot.com` : undefined);
 															const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
-															const [bucketExists] = await bucket.exists();
-															if (!bucketExists) {
-																throw new Error(`Storage bucket not found. Please enable Firebase Storage in your project or set a valid storageBucket. Attempted bucket: ${bucketName || '(default)'} `);
+															let file = null;
+															try {
+																const [bucketExists] = await bucket.exists();
+																if (!bucketExists) {
+																	console.warn(`Storage bucket not found. Skipping storage write. Attempted bucket: ${bucketName || '(default)'} `);
+																} else {
+																	file = bucket.file(imagePath);
+																	await file.save(buffer, {
+																		resumable: false,
+																		contentType: mimeType,
+																		metadata: { cacheControl: 'public, max-age=31536000' },
+																	});
+																}
+															} catch (storageErr) {
+																console.warn('Storage write skipped due to error:', storageErr?.message || storageErr);
+																file = null;
 															}
-															const file = bucket.file(imagePath);
-										await file.save(buffer, {
-											resumable: false,
-											contentType: mimeType,
-											metadata: { cacheControl: 'public, max-age=31536000' },
-										});
 
 											// Optionally create a signed URL (1 year)
 										let downloadUrl = null;
-														try {
-											const [url] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 1000 * 60 * 60 * 24 * 365 });
-											downloadUrl = url;
-														} catch (e) {
-											// If signed URL fails, continue without it.
+										if (file) {
+											try {
+												// Use a Date object for signed URL expiry to avoid format issues
+												const [url] = await file.getSignedUrl({ action: 'read', expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365) });
+												downloadUrl = url;
+											} catch (e) {
+												// If signed URL fails, continue without it and log the error for diagnostics.
+												console.warn('getSignedUrl failed:', e?.message || e);
+											}
+										} else {
+											console.warn('Skipping getSignedUrl because file was not written to Storage');
 										}
 
 													// Attempt to write Firestore metadata, but don't fail the whole request if Firestore isn't set up
