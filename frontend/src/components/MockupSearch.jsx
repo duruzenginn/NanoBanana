@@ -82,18 +82,21 @@ export default function MockupSearch({ onSelect, selected, className }) {
       {!loading && results?.length > 0 && (
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {results.map((item) => (
-            <button
+            <div
               key={item.id}
-              type="button"
-              onClick={() => onSelect?.(item)}
-              className="group text-left rounded-xl overflow-hidden border border-white/10 bg-white/5 hover:bg-white/10 focus:ring-2 focus:ring-primary/60"
+              role="button"
+              tabIndex={0}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect?.(item) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(item) } }}
+              className="group text-left rounded-xl overflow-hidden border border-white/10 bg-white/5 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-primary/60 cursor-pointer select-none"
               title={item.title}
             >
               <div className="aspect-square bg-black/20 overflow-hidden">
-                <img src={item.thumbnailUrl || item.previewUrl || item.imageUrl} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                <img draggable={false} src={item.thumbnailUrl || item.previewUrl || item.imageUrl} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
               </div>
               <div className="px-2.5 py-2 text-xs text-white/80 truncate">{item.title || 'Untitled'}</div>
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -118,7 +121,8 @@ function normalizeFreepikItems(payload) {
     const thumb = it?.thumb_url || it?.thumbnail || it?.images?.preview || it?.images?.['64x64'] || it?.assets?.preview?.url || imageSourceUrl
     const preview = it?.preview_url || it?.images?.['240_F'] || it?.images?.['500_F'] || it?.assets?.preview_1000?.url || imageSourceUrl
     const imageUrl = it?.image_url || preview || thumb || it?.url
-    const author = it?.author || it?.creator || it?.owner || it?.uploader || ''
+  const rawAuthor = it?.author || it?.creator || it?.owner || it?.uploader || ''
+  const author = typeof rawAuthor === 'string' ? rawAuthor : (rawAuthor?.name || rawAuthor?.username || rawAuthor?.slug || '')
 
     return {
       id,
@@ -126,9 +130,17 @@ function normalizeFreepikItems(payload) {
       thumbnailUrl: thumb || imageUrl,
       previewUrl: preview || imageUrl,
       imageUrl,
-      author,
-      source: it?.url || it?.link || '',
+  author,
+      source: ensureHttpUrl(it?.url || it?.link || ''),
       raw: it,
     }
   })
+}
+
+function ensureHttpUrl(x) {
+  if (!x || typeof x !== 'string') return ''
+  try {
+    const u = new URL(x)
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? x : ''
+  } catch { return '' }
 }
