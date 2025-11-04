@@ -31,7 +31,6 @@ export default function App() {
           prompt: prompt.trim(),
           style: style || undefined,
           aspectRatio: aspect || undefined,
-          mockupImageUrl: selectedMockup?.imageUrl || selectedMockup?.previewUrl || selectedMockup?.thumbnailUrl || undefined,
         })
       })
       const data = await resp.json().catch(() => ({}))
@@ -82,6 +81,35 @@ export default function App() {
     }
   }
 
+  const handleGenerateWithoutMockup = async () => {
+    if (loading) return
+    const p = mockupPrompt.trim()
+    if (!p) return
+    setLoading(true)
+    setError('')
+    setImageUrl('')
+    try {
+      const resp = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: p,
+          style: style || undefined,
+          aspectRatio: aspect || undefined,
+        })
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status})`)
+      const { imageBase64, mimeType } = data
+      if (!imageBase64) throw new Error('No image returned from the model.')
+      setImageUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
+    } catch (e) {
+      setError(e.message || String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleCopyPrompt = async () => {
     try {
       await navigator.clipboard.writeText(prompt)
@@ -113,6 +141,7 @@ export default function App() {
               prompt={mockupPrompt}
               setPrompt={setMockupPrompt}
               onGenerate={handleGenerateWithMockup}
+              onGenerateWithoutMockup={handleGenerateWithoutMockup}
               loading={loading}
             />
           </div>

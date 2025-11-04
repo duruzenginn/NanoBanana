@@ -1,7 +1,7 @@
 import React from 'react'
 import clsx from 'clsx'
 
-export default function SelectedMockupPanel({ selected, onClear, prompt, setPrompt, onGenerate, loading }) {
+export default function SelectedMockupPanel({ selected, onClear, prompt, setPrompt, onGenerate, onGenerateWithoutMockup, loading }) {
 	if (!selected) return null
 	return (
 		<div className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-white/5 p-4">
@@ -44,9 +44,17 @@ export default function SelectedMockupPanel({ selected, onClear, prompt, setProm
 				>
 					Generate with this mockup
 				</button>
+				<button
+					type="button"
+					onClick={onGenerateWithoutMockup}
+					disabled={loading || !prompt.trim()}
+					className={clsx('btn-ghost', (loading || !prompt.trim()) && 'opacity-60 pointer-events-none')}
+				>
+					Generate without mockup
+				</button>
 				{loading && <span className="text-white/70 text-sm">This can take a few seconds…</span>}
 			</div>
-			<p className="text-xs text-white/70">We’ll send the selected mockup image plus this prompt to Gemini.</p>
+			<p className="text-xs text-white/70">Use either: “with this mockup” (image + prompt) or “without mockup” (prompt only with Gemini).</p>
 		</div>
 	)
 }
