@@ -158,14 +158,14 @@ exports.generateImageV2 = onRequest(
 				return res.status(405).json({ error: 'Method not allowed. Use POST.' });
 			}
 
-			const { prompt, style, aspectRatio } = req.body || {};
+			const { prompt, style, aspectRatio, mockupImageUrl } = req.body || {};
 			if (!prompt || typeof prompt !== 'string') {
 				return res.status(400).json({ error: 'Missing required field: prompt (string).' });
 			}
 
 			try {
 				const { generateImageFlow } = await getFlows();
-				const result = await generateImageFlow({ prompt, style, aspectRatio });
+				const result = await generateImageFlow({ prompt, style, aspectRatio, mockupImageUrl });
 				return res.status(200).json(result);
 			} catch (err) {
 				// Validation errors from zod should be treated as 400
@@ -268,36 +268,33 @@ const getFlows = (() => {
 
 						// Use Genkit to generate an image with Gemini 2.5 Flash Image
 										let media, rawResponse;
-										if (imageInput) {
-											// Attempt multimodal input: text + image. If the API shape changes, this may need adjustment per Genkit docs.
-											({ media, rawResponse } = await ai.generate({
-												model: googleAI.model('gemini-2.5-flash-image'),
-												input: [
-													{
-														role: 'user',
-														content: [
-															{ text: fullPrompt },
-															{ media: { inlineData: { data: imageInput.base64, mimeType: imageInput.mimeType } } },
-														],
-													},
-												],
-												config: {
-													responseModalities: ['IMAGE'],
-													...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
-												},
-												output: { format: 'media' },
-											}));
-										} else {
-											({ media, rawResponse } = await ai.generate({
-												model: googleAI.model('gemini-2.5-flash-image'),
-												prompt: fullPrompt,
-												config: {
-													responseModalities: ['IMAGE'],
-													...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
-												},
-												output: { format: 'media' },
-											}));
-										}
+																				if (imageInput) {
+																					// Use Gemini image model for image+text editing with a reference image.
+																					const dataUrl = `data:${imageInput.mimeType};base64,${imageInput.base64}`;
+																					({ media, rawResponse } = await ai.generate({
+																						model: googleAI.model('gemini-2.5-flash-image'),
+																						prompt: [
+																							{ text: fullPrompt },
+																							{ media: { contentType: imageInput.mimeType, url: dataUrl } },
+																						],
+																						config: {
+																							responseModalities: ['IMAGE'],
+																							responseMimeType: 'image/png',
+																							...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+																						},
+																						output: { format: 'media' },
+																					}));
+																		}	else {
+																		({ media, rawResponse } = await ai.generate({
+																			model: googleAI.model('gemini-2.5-flash-image'),
+																			prompt: fullPrompt,
+																			config: {
+																				responseModalities: ['IMAGE'],
+																				...(aspectRatio ? { imageConfig: { aspectRatio } } : {}),
+																			},
+																			output: { format: 'media' },
+																		}));
+																	}
 
 						// Genkit may return media as an array or a single object. Normalize it.
 						const m = Array.isArray(media) ? media[0] : media;
