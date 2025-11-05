@@ -81,23 +81,29 @@ export default function MockupSearch({ onSelect, selected, className }) {
 
       {!loading && results?.length > 0 && (
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {results.map((item) => (
-            <div
-              key={item.id}
-              role="button"
-              tabIndex={0}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect?.(item) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(item) } }}
-              className="group text-left rounded-xl overflow-hidden border border-white/10 bg-white/5 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-primary/60 cursor-pointer select-none"
-              title={item.title}
-            >
-              <div className="aspect-square bg-black/20 overflow-hidden">
-                <img draggable={false} src={item.thumbnailUrl || item.previewUrl || item.imageUrl} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+          {results.map((item) => {
+            const isSelected = selected && (selected.id === item.id || selected.imageUrl === item.imageUrl)
+            return (
+              <div
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect?.(item) }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(item) } }}
+                className={`group text-left rounded-xl overflow-hidden border bg-white/5 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-primary/60 cursor-pointer select-none ${isSelected ? 'border-primary2 ring-1 ring-primary2/70 shadow-glow' : 'border-white/10'}`}
+                title={item.title}
+              >
+                <div className="relative aspect-square bg-black/20 overflow-hidden">
+                  <img draggable={false} src={item.thumbnailUrl || item.previewUrl || item.imageUrl} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                  {isSelected && (
+                    <div className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/70 ring-1 ring-primary2/80 text-white/90">Selected</div>
+                  )}
+                </div>
+                <div className="px-2.5 py-2 text-xs text-white/80 truncate">{item.title || 'Untitled'}</div>
               </div>
-              <div className="px-2.5 py-2 text-xs text-white/80 truncate">{item.title || 'Untitled'}</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

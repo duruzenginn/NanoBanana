@@ -10,19 +10,23 @@ export default function App() {
   const [prompt, setPrompt] = useState('')
   const [style, setStyle] = useState('')
   const [aspect, setAspect] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  // Separate results & states: prompt-only vs mockup-panel flows
+  const [promptResultUrl, setPromptResultUrl] = useState('')
+  const [mockupResultUrl, setMockupResultUrl] = useState('')
+  const [loadingPrompt, setLoadingPrompt] = useState(false)
+  const [loadingMockup, setLoadingMockup] = useState(false)
+  const [errorPrompt, setErrorPrompt] = useState('')
+  const [errorMockup, setErrorMockup] = useState('')
   const [selectedMockup, setSelectedMockup] = useState(null)
   const [mockupPrompt, setMockupPrompt] = useState('')
 
-  const canSubmit = useMemo(() => prompt.trim().length > 0 && !loading, [prompt, loading])
+  const canSubmit = useMemo(() => prompt.trim().length > 0 && !loadingPrompt, [prompt, loadingPrompt])
 
   const handleGenerate = async () => {
     if (!canSubmit) return
-    setLoading(true)
-    setError('')
-    setImageUrl('')
+    setLoadingPrompt(true)
+    setErrorPrompt('')
+    setPromptResultUrl('')
     try {
       const resp = await fetch('/api/generateImage', {
         method: 'POST',
@@ -37,27 +41,28 @@ export default function App() {
       if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status})`)
       const { imageBase64, mimeType } = data
       if (!imageBase64) throw new Error('No image returned from the model.')
-      setImageUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
+      setPromptResultUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
     } catch (e) {
-      setError(e.message || String(e))
+      setErrorPrompt(e.message || String(e))
     } finally {
-      setLoading(false)
+      setLoadingPrompt(false)
     }
   }
 
-  const handleNew = () => {
-    setImageUrl('')
-    setSelectedMockup(null)
-    setMockupPrompt('')
+  const handleNewPromptOnly = () => {
+    setPromptResultUrl('')
+  }
+  const handleNewMockup = () => {
+    setMockupResultUrl('')
   }
 
   const handleGenerateWithMockup = async () => {
-    if (loading) return
+    if (loadingMockup) return
     const p = mockupPrompt.trim()
     if (!p) return
-    setLoading(true)
-    setError('')
-    setImageUrl('')
+    setLoadingMockup(true)
+    setErrorMockup('')
+    setMockupResultUrl('')
     try {
       const resp = await fetch('/api/generateImage', {
         method: 'POST',
@@ -73,21 +78,21 @@ export default function App() {
       if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status})`)
       const { imageBase64, mimeType } = data
       if (!imageBase64) throw new Error('No image returned from the model.')
-      setImageUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
+      setMockupResultUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
     } catch (e) {
-      setError(e.message || String(e))
+      setErrorMockup(e.message || String(e))
     } finally {
-      setLoading(false)
+      setLoadingMockup(false)
     }
   }
 
   const handleGenerateWithoutMockup = async () => {
-    if (loading) return
+    if (loadingMockup) return
     const p = mockupPrompt.trim()
     if (!p) return
-    setLoading(true)
-    setError('')
-    setImageUrl('')
+    setLoadingMockup(true)
+    setErrorMockup('')
+    setMockupResultUrl('')
     try {
       const resp = await fetch('/api/generateImage', {
         method: 'POST',
@@ -102,11 +107,11 @@ export default function App() {
       if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status})`)
       const { imageBase64, mimeType } = data
       if (!imageBase64) throw new Error('No image returned from the model.')
-      setImageUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
+      setMockupResultUrl(`data:${mimeType || 'image/png'};base64,${imageBase64}`)
     } catch (e) {
-      setError(e.message || String(e))
+      setErrorMockup(e.message || String(e))
     } finally {
-      setLoading(false)
+      setLoadingMockup(false)
     }
   }
 
@@ -115,6 +120,29 @@ export default function App() {
       await navigator.clipboard.writeText(prompt)
     } catch {}
   }
+  const handleCopyMockupPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(mockupPrompt)
+    } catch {}
+  }
+
+  const aspectPadding = useMemo(() => {
+    // Convert aspect ratio like "16:9" to percentage padding-top for a responsive box
+    const map = {
+      '1:1': 100,
+      '16:9': (9 / 16) * 100,
+      '9:16': (16 / 9) * 100,
+      '3:2': (2 / 3) * 100,
+      '2:3': (3 / 2) * 100,
+      '4:3': (3 / 4) * 100,
+      '3:4': (4 / 3) * 100,
+      '5:4': (4 / 5) * 100,
+      '4:5': (5 / 4) * 100,
+      '21:9': (9 / 21) * 100,
+    }
+    const v = aspect && map[aspect]
+    return v || 56.25 // default to 16:9 feel when auto
+  }, [aspect])
 
   return (
     <div className="min-h-screen bg-grid text-white">
@@ -122,6 +150,52 @@ export default function App() {
 
       <main className="mx-auto max-w-[800px] px-4 py-8">
         <section className="glass p-6 md:p-8">
+          <MockupSearch selected={selectedMockup} onSelect={setSelectedMockup} />
+          <SelectedMockupPanel
+            selected={selectedMockup}
+            onClear={() => setSelectedMockup(null)}
+            prompt={mockupPrompt}
+            setPrompt={setMockupPrompt}
+            onGenerate={handleGenerateWithMockup}
+            onGenerateWithoutMockup={handleGenerateWithoutMockup}
+            loading={loadingMockup}
+          />
+          {/* Mockup-section result box */}
+          {loadingMockup && (
+            <div className="mt-6 grid place-items-center">
+              <div className="w-full max-w-[720px]">
+                <div className="relative w-full rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                  <div style={{ paddingTop: `${aspectPadding}%` }} />
+                  <div className="absolute inset-0 skeleton" />
+                </div>
+                <div className="mt-4 flex items-center gap-3 text-sm text-white/80">
+                  <LoadingSpinner />
+                  <span>Generating your image…</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {!!errorMockup && (
+            <div className="mt-4 glass p-4 border border-red-400/40 bg-red-500/10 text-red-200 rounded-xl">
+              {errorMockup}
+            </div>
+          )}
+          {!!mockupResultUrl && (
+            <div className="mt-6">
+              <ResultCard
+                prompt={mockupPrompt}
+                imageUrl={mockupResultUrl}
+                onNew={handleNewMockup}
+                onCopyPrompt={handleCopyMockupPrompt}
+              />
+            </div>
+          )}
+        </section>
+
+        {/* Middle section intentionally left for future content */}
+
+        {/* Moved Prompt controls to the bottom */}
+        <section className="mt-6 glass p-6 md:p-8">
           <PromptForm
             prompt={prompt}
             setPrompt={setPrompt}
@@ -130,28 +204,17 @@ export default function App() {
             aspect={aspect}
             setAspect={setAspect}
             canSubmit={canSubmit}
-            loading={loading}
+            loading={loadingPrompt}
             onSubmit={handleGenerate}
           />
-          <div className="mt-6">
-            <MockupSearch selected={selectedMockup} onSelect={setSelectedMockup} />
-            <SelectedMockupPanel
-              selected={selectedMockup}
-              onClear={() => setSelectedMockup(null)}
-              prompt={mockupPrompt}
-              setPrompt={setMockupPrompt}
-              onGenerate={handleGenerateWithMockup}
-              onGenerateWithoutMockup={handleGenerateWithoutMockup}
-              loading={loading}
-            />
-          </div>
-        </section>
-
-        <section className="mt-6">
-          {loading && (
-            <div className="glass p-6 md:p-8 grid place-items-center">
+          {/* Prompt-section result box */}
+          {loadingPrompt && (
+            <div className="mt-6 grid place-items-center">
               <div className="w-full max-w-[720px]">
-                <div className="skeleton aspect-video" />
+                <div className="relative w-full rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                  <div style={{ paddingTop: `${aspectPadding}%` }} />
+                  <div className="absolute inset-0 skeleton" />
+                </div>
                 <div className="mt-4 flex items-center gap-3 text-sm text-white/80">
                   <LoadingSpinner />
                   <span>Generating your image…</span>
@@ -159,19 +222,17 @@ export default function App() {
               </div>
             </div>
           )}
-
-          {!!error && (
-            <div className="glass p-4 border border-red-400/40 bg-red-500/10 text-red-200 rounded-xl">
-              {error}
+          {!!errorPrompt && (
+            <div className="mt-4 glass p-4 border border-red-400/40 bg-red-500/10 text-red-200 rounded-xl">
+              {errorPrompt}
             </div>
           )}
-
-          {!!imageUrl && (
-            <div className="glass p-6 md:p-8">
+          {!!promptResultUrl && (
+            <div className="mt-6">
               <ResultCard
                 prompt={prompt}
-                imageUrl={imageUrl}
-                onNew={handleNew}
+                imageUrl={promptResultUrl}
+                onNew={handleNewPromptOnly}
                 onCopyPrompt={handleCopyPrompt}
               />
             </div>
