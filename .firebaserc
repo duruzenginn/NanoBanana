@@ -1,5 +1,8 @@
 {
-	"projects": {
-		"default": "nanoduruna"
-	}
+  "projects": {
+    "default": "brandize-101db",
+    "brandize": "brandize-101db"
+  },
+  "targets": {},
+  "etags": {}
 }

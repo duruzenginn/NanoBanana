@@ -92,12 +92,17 @@ exports.freepikSearch = onRequest(
 						const controller = new AbortController();
 						const timeout = setTimeout(() => controller.abort(), 15000);
 
+						// Normalize API key to avoid trailing whitespace or newlines from Secret Manager
+						const apiKey = (process.env.FREEPIK_API_KEY || '').trim();
 						const fpResp = await fetch(apiUrl.toString(), {
 							method: 'GET',
 							headers: {
-								'x-freepik-api-key': process.env.FREEPIK_API_KEY,
+								// Freepik docs specify x-freepik-api-key; include Authorization as Bearer for compatibility
+								'x-freepik-api-key': apiKey,
+								'Authorization': `Bearer ${apiKey}`,
 								'Accept': 'application/json',
 								'Accept-Language': Array.isArray(acceptLang) ? acceptLang[0] : acceptLang,
+								'User-Agent': 'NanoBanana/1.0 (+firebase-functions)'
 							},
 							signal: controller.signal,
 						}).catch((e) => {
