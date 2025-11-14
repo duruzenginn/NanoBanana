@@ -137,6 +137,100 @@ exports.freepikSearch = onRequest(
 );
 
 /**
+ * Proxy download to Freepik API to keep API key server-side.
+ * GET /api/freepik/download?resourceId=<id>&variant=<optional>&filetype=<optional>
+ * Returns: { downloadUrl: string | null, raw: any }
+ */
+exports.freepikDownload = onRequest(
+	{
+		region: 'europe-west1',
+		timeoutSeconds: 30,
+		memory: '256MiB',
+		cors: true,
+		secrets: [FREEPIK_API_KEY],
+	},
+	async (req, res) => {
+		// Handle CORS preflight
+		if (req.method === 'OPTIONS') {
+			res.set('Access-Control-Allow-Origin', '*');
+			res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+			res.set('Access-Control-Allow-Headers', 'Content-Type');
+			return res.status(204).send('');
+		}
+
+		return cors(req, res, async () => {
+			if (req.method !== 'GET') {
+				return res.status(405).json({ error: 'Method not allowed. Use GET.' });
+			}
+
+			const resourceId = (req.query.resourceId || '').toString().trim();
+			if (!resourceId) {
+				return res.status(400).json({ error: 'Missing required query parameter: resourceId' });
+			}
+
+			if (!process.env.FREEPIK_API_KEY) {
+				return res.status(500).json({ error: 'FREEPIK_API_KEY not configured on server' });
+			}
+
+			try {
+				const apiUrl = new URL(`https://api.freepik.com/v1/resources/${encodeURIComponent(resourceId)}/download`);
+				// Forward optional query params
+				if (typeof req.query.variant !== 'undefined' && req.query.variant !== null) {
+					apiUrl.searchParams.set('variant', req.query.variant.toString());
+				}
+				if (typeof req.query.filetype !== 'undefined' && req.query.filetype !== null) {
+					apiUrl.searchParams.set('filetype', req.query.filetype.toString());
+				}
+
+				const acceptLang = req.headers['accept-language'] || 'en-US';
+
+				// Add timeout to avoid hanging
+				const controller = new AbortController();
+				const timeout = setTimeout(() => controller.abort(), 15000);
+
+				const apiKey = (process.env.FREEPIK_API_KEY || '').trim();
+				const fpResp = await fetch(apiUrl.toString(), {
+					method: 'GET',
+					headers: {
+						'x-freepik-api-key': apiKey,
+						'Authorization': `Bearer ${apiKey}`,
+						'Accept': 'application/json',
+						'Accept-Language': Array.isArray(acceptLang) ? acceptLang[0] : acceptLang,
+						'User-Agent': 'NanoBanana/1.0 (+firebase-functions)'
+					},
+					signal: controller.signal,
+				}).catch((e) => {
+					if (e && e.name === 'AbortError') {
+						return { ok: false, status: 504, text: async () => JSON.stringify({ message: 'Upstream timeout' }) };
+					}
+					throw e;
+				});
+
+				clearTimeout(timeout);
+
+				const text = await fpResp.text();
+				let json;
+				try { json = text ? JSON.parse(text) : {}; } catch {
+					json = { raw: text };
+				}
+
+				if (!fpResp.ok) {
+					const msg = (json && (json.message || json.error)) || `Freepik API error (${fpResp.status})`;
+					return res.status(fpResp.status || 502).json({ error: msg, details: json });
+				}
+
+				// Extract download URL from possible fields
+				const downloadUrl = (json && (json.data?.url || json.url || json.location)) || null;
+				return res.status(200).json({ downloadUrl, raw: json });
+			} catch (err) {
+				console.error('freepikDownload error:', err);
+				return res.status(500).json({ error: 'Failed to download from Freepik', details: String(err?.message || err) });
+			}
+		});
+	}
+);
+
+/**
  * Gen 2 HTTPS function: POST /api/generateImage
  * Body: { prompt: string, style?: string, aspectRatio?: '1:1'|'16:9'|'9:16'|'3:2'|'2:3'|'4:3'|'3:4'|'5:4'|'4:5'|'21:9' }
  * Returns: { imageBase64: string, mimeType: string, modelVersion?: string }
@@ -398,47 +492,5 @@ const getFlows = (() => {
 	};
 })();
 
-/**
- * Genkit-backed hello flow (example)
- * POST /api/hello
- * Body: { name: string }
- * Returns: { message: string }
- */
-exports.genkitHello = onRequest(
-	{
-		region: 'europe-west1',
-		timeoutSeconds: 60,
-		memory: '512MiB',
-		cors: true,
-		secrets: [GOOGLE_API_KEY],
-	},
-	async (req, res) => {
-		// Handle CORS preflight
-		if (req.method === 'OPTIONS') {
-			res.set('Access-Control-Allow-Origin', '*');
-			res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-			res.set('Access-Control-Allow-Headers', 'Content-Type');
-			return res.status(204).send('');
-		}
 
-		return cors(req, res, async () => {
-			if (req.method !== 'POST') {
-				return res.status(405).json({ error: 'Method not allowed. Use POST.' });
-			}
 
-			const name = req.body?.name;
-			if (!name || typeof name !== 'string') {
-				return res.status(400).json({ error: 'Missing required field: name (string).' });
-			}
-
-			try {
-				const { helloFlow } = await getFlows();
-				const result = await helloFlow({ name });
-				return res.status(200).json(result);
-			} catch (err) {
-				console.error('genkitHello error:', err);
-				return res.status(500).json({ error: 'Internal error running Genkit flow', details: String((err && err.message) || err) });
-			}
-		});
-	}
-);
