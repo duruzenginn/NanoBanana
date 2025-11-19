@@ -20,6 +20,7 @@
 		"firebase-functions": "^5.1.1",
 		"genkit": "^1.22.0",
 		"jszip": "^3.10.1",
+		"dotenv": "^16.4.5",
 		"zod": "^3.23.8"
 	}
 }

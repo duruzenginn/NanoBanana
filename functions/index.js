@@ -1,4 +1,12 @@
 'use strict';
+// Load local env variables when running in emulator/development.
+// Will look for .env.local first, then .env. Safe in production (ignored if files absent).
+try {
+	require('dotenv').config({ path: '.env.local' });
+	require('dotenv').config();
+} catch (e) {
+	// dotenv optional
+}
 
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
@@ -126,6 +134,7 @@ exports.freepikSearch = onRequest(
 				// Apply temporary heuristic free filter if requested.
 				const onlyFree = String(req.query.onlyFree || "").toLowerCase() === "true";
 				if (onlyFree && Array.isArray(json?.data)) {
+					console.log('[freepikSearch] onlyFree pre-count=', json.data.length);
 					try {
 						json.data = json.data.filter((item) => {
 							if (!item || typeof item !== "object") return false;
@@ -134,8 +143,10 @@ exports.freepikSearch = onRequest(
 							if (url.includes("/premium-")) return false; // exclude premium-marked URLs
 							if (item.products && Array.isArray(item.products) && item.products.length > 0) return false; // has products => likely restricted
 							if (url.includes("/free-")) return true; // heuristic keep
-							return false; // discard others to maximize free likelihood
+							// Relax heuristic: keep if no premium markers and no products (potentially free)
+							return true;
 						});
+						console.log('[freepikSearch] onlyFree post-count=', json.data.length);
 					} catch (e) {
 						console.warn("onlyFree heuristic filtering error:", e?.message || e);
 					}
