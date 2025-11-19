@@ -552,11 +552,19 @@ const getFlows = (() => {
 				{
 					name: "generateImage",
 					inputSchema: z.object({
-						prompt: z.string().min(1),
-						style: z.string().optional(),
-						aspectRatio: z.enum(allowedRatios).optional(),
-						// Optional: selected mockup image URL to condition the generation (handled server-side)
-						mockupImageUrl: z.string().url().optional(),
+					prompt: z.string().min(1),
+					style: z.string().optional(),
+					aspectRatio: z.enum(allowedRatios).optional(),
+					mockupImageUrl: z.string().url().optional(),
+					templateId: z.string().optional(), // freepikDownload'tan gelen uuid
+					cropRect: z
+					 .object({
+						x: z.number(),
+						y: z.number(),
+						width: z.number(),
+						height: z.number(),
+						})
+						.optional(), // varsa crop bilgisi
 					}),
 					outputSchema: z.object({
 						imageBase64: z.string(),
@@ -567,7 +575,7 @@ const getFlows = (() => {
 						downloadUrl: z.string().nullable().optional(),
 					}),
 				},
-				async ({ prompt, style, aspectRatio, mockupImageUrl }) => {
+				async ({ prompt, style, aspectRatio, mockupImageUrl, templateId, cropRect }) => {
 					const stylePrefix = style ? `Style: ${style}. ` : "";
 					const fullPrompt = `${stylePrefix}${prompt}`.trim();
 
@@ -630,6 +638,7 @@ const getFlows = (() => {
 
 					// Persist to Cloud Storage and Firestore
 					const buffer = Buffer.from(imageBase64, "base64");
+					
 					const ext = ((mime) => {
 						if (mime === "image/png") return "png";
 						if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
@@ -639,7 +648,7 @@ const getFlows = (() => {
 
 					// Generate an id up front so Storage write doesn't depend on Firestore availability
 					const id = randomUUID();
-					const imagePath = `images/${id}.${ext}`;
+					const imagePath = `branded/${id}.${ext}`;
 
 					// Attempt to persist to Cloud Storage. If the bucket isn't available (e.g., emulator not initialized)
 					// do not fail the entire request — log and continue returning the imageBase64.
@@ -648,6 +657,7 @@ const getFlows = (() => {
 					const projId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
 					const bucketName = configuredBucket || (projId ? `${projId}.appspot.com` : undefined);
 					const bucket = bucketName ? admin.storage().bucket(bucketName) : admin.storage().bucket();
+					
 					let file = null;
 					try {
 						const [bucketExists] = await bucket.exists();
@@ -683,18 +693,23 @@ const getFlows = (() => {
 
 					// Attempt to write Firestore metadata, but don't fail the whole request if Firestore isn't set up
 					try {
-						const db = admin.firestore();
+						
 						await db.collection("images").doc(id).set({
-							prompt,
-							style: style || null,
-							aspectRatio: aspectRatio || null,
-							mockupImageUrl: mockupImageUrl || null,
-							mimeType,
-							storagePath: imagePath,
-							downloadUrl,
-							modelVersion: rawResponse?.modelVersion || null,
-							size: buffer.length,
-							createdAt: admin.firestore.FieldValue.serverTimestamp(),
+						kind: "BRANDED",                  // istersen tag, ileride filtrelemek için
+						prompt,
+						style: style || null,
+						aspectRatio: aspectRatio || null,
+						mockupImageUrl: mockupImageUrl || null,
+						mimeType,
+						storagePath: imagePath,
+						downloadUrl,
+						modelVersion: rawResponse?.modelVersion || null,
+						size: buffer.length,
+						createdAt: FieldValue.serverTimestamp(), 
+
+						// 🔹 İLİŞKİ ALANLARI:
+						templateId: templateId || null,   // hangi Freepik template'ten türedi
+						cropRect: cropRect || null,       // kullanıcı neresini crop'ladı
 						});
 					} catch (metaErr) {
 						console.warn("Firestore metadata write skipped:", metaErr?.message || metaErr);
