@@ -2,6 +2,12 @@
 	"functions": {
 		"source": "functions"
 	},
+	"emulators": {
+		"functions": {
+			"host": "127.0.0.1",
+			"port": 5002
+		}
+	},
 		"hosting": {
 			"public": "frontend/dist",
 			"predeploy": [

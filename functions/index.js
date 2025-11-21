@@ -303,21 +303,32 @@ exports.freepikDownload = onRequest(
 
 						const file = bucket.file(storagePath);
 						await file.save(zipBuffer, {
-						resumable: false,
-						contentType:
-							assetResp.headers.get("content-type") || "application/zip",
-						metadata: { cacheControl: "public, max-age=31536000" },
+							resumable: false,
+							contentType:
+								assetResp.headers.get("content-type") || "application/zip",
+							metadata: { cacheControl: "public, max-age=31536000" },
 						});
 
-						// Signed URL (ZIP için, çok önemli değil ama boş kalmasın)
+						// Add Firebase download token so we can build a stable URL fallback
+						let tokenUrl = null;
 						try {
-						const [url] = await file.getSignedUrl({
-							action: "read",
-							expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
-						});
-						signedUrl = url;
+							const token = randomUUID();
+							await file.setMetadata({ metadata: { firebaseStorageDownloadTokens: token } });
+							tokenUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+						} catch (metaErr) {
+							console.warn("setMetadata token (zip) failed:", metaErr?.message || metaErr);
+						}
+
+						// Try Signed URL first; if it fails, fall back to token URL
+						try {
+							const [url] = await file.getSignedUrl({
+								action: "read",
+								expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+							});
+							signedUrl = url || tokenUrl;
 						} catch (e) {
-						console.warn("getSignedUrl (zip) failed:", e?.message || e);
+							console.warn("getSignedUrl (zip) failed:", e?.message || e);
+							signedUrl = tokenUrl;
 						}
 
 						// Firestore metadata (ZIP)
@@ -403,20 +414,31 @@ exports.freepikDownload = onRequest(
 						const file = bucket.file(storagePath);
 
 						await file.save(imgBuffer, {
-						resumable: false,
-						contentType: mimeType,
-						metadata: { cacheControl: "public, max-age=31536000" },
+							resumable: false,
+							contentType: mimeType,
+							metadata: { cacheControl: "public, max-age=31536000" },
 						});
 
-						// 7) Signed URL (artık gerçek image için)
+						// Add Firebase download token so we can build a stable URL fallback
+						let tokenUrl = null;
 						try {
-						const [url] = await file.getSignedUrl({
-							action: "read",
-							expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
-						});
-						signedUrl = url;
+							const token = randomUUID();
+							await file.setMetadata({ metadata: { firebaseStorageDownloadTokens: token } });
+							tokenUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`;
+						} catch (metaErr) {
+							console.warn("setMetadata token (image) failed:", metaErr?.message || metaErr);
+						}
+
+						// 7) Signed URL (artık gerçek image için) with fallback to token URL
+						try {
+							const [url] = await file.getSignedUrl({
+								action: "read",
+								expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+							});
+							signedUrl = url || tokenUrl;
 						} catch (e) {
-						console.warn("getSignedUrl (image) failed:", e?.message || e);
+							console.warn("getSignedUrl (image) failed:", e?.message || e);
+							signedUrl = tokenUrl;
 						}
 
 						// 8) Firestore metadata (image)
